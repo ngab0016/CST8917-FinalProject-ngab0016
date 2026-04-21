@@ -1,0 +1,170 @@
+# ============================================================
+# CST8917 Final Project — Version A: Durable Functions
+# test-durable.http
+#
+# Usage: Open in VS Code with the REST Client extension,
+#        or use curl commands shown in comments.
+#
+# IMPORTANT: After running a submit request, copy the
+# "id" from the response and paste it into the
+# @instance_id variable below before running decision calls.
+# ============================================================
+
+@baseUrl = http://localhost:7071/api
+@instance_id = PASTE_INSTANCE_ID_HERE
+
+
+# ============================================================
+# Scenario 1: Valid expense UNDER $100 → Auto-approved
+# ============================================================
+# Expected: orchestration completes immediately with status "approved"
+# and reason "Auto-approved: amount under $100."
+
+POST {{baseUrl}}/expenses/submit
+Content-Type: application/json
+
+{
+  "employee_name": "Alice Smith",
+  "employee_email": "alice@example.com",
+  "amount": 45.00,
+  "category": "meals",
+  "description": "Team lunch",
+  "manager_email": "manager@example.com"
+}
+
+###
+
+# ============================================================
+# Scenario 2: Valid expense >= $100, manager APPROVES
+# ============================================================
+# Step A: Submit the expense (copy returned instance ID)
+
+POST {{baseUrl}}/expenses/submit
+Content-Type: application/json
+
+{
+  "employee_name": "Bob Jones",
+  "employee_email": "bob@example.com",
+  "amount": 350.00,
+  "category": "travel",
+  "description": "Train ticket to client site",
+  "manager_email": "manager@example.com"
+}
+
+###
+
+# Step B: Manager approves (paste instance ID from Step A above)
+
+POST {{baseUrl}}/expenses/decision/{{instance_id}}?action=approved
+Content-Type: application/json
+
+{
+  "reason": "Approved — within budget."
+}
+
+###
+
+# ============================================================
+# Scenario 3: Valid expense >= $100, manager REJECTS
+# ============================================================
+# Step A: Submit the expense (copy returned instance ID)
+
+POST {{baseUrl}}/expenses/submit
+Content-Type: application/json
+
+{
+  "employee_name": "Carol White",
+  "employee_email": "carol@example.com",
+  "amount": 200.00,
+  "category": "equipment",
+  "description": "External monitor",
+  "manager_email": "manager@example.com"
+}
+
+###
+
+# Step B: Manager rejects (paste instance ID from Step A above)
+
+POST {{baseUrl}}/expenses/decision/{{instance_id}}?action=rejected
+Content-Type: application/json
+
+{
+  "reason": "Rejected — budget exceeded for this quarter."
+}
+
+###
+
+# ============================================================
+# Scenario 4: Valid expense >= $100, NO manager response → Escalated
+# ============================================================
+# To test this locally without waiting 24 hours:
+#   1. In function_app.py, temporarily set MANAGER_TIMEOUT_HOURS = 0.003 (≈10 seconds)
+#   2. Restart the function host
+#   3. Submit the request below
+#   4. Wait ~10 seconds — the orchestration will auto-escalate
+#   5. Check the status URL returned in the response
+#
+# Expected: status "escalated", reason "No manager response received..."
+
+POST {{baseUrl}}/expenses/submit
+Content-Type: application/json
+
+{
+  "employee_name": "David Lee",
+  "employee_email": "david@example.com",
+  "amount": 500.00,
+  "category": "software",
+  "description": "Annual SaaS subscription",
+  "manager_email": "manager@example.com"
+}
+
+###
+
+# ============================================================
+# Scenario 5: Missing required field → Validation error
+# ============================================================
+# Missing "employee_email" — expected: status "rejected",
+# reason "Missing required field: 'employee_email'."
+
+POST {{baseUrl}}/expenses/submit
+Content-Type: application/json
+
+{
+  "employee_name": "Eve Brown",
+  "amount": 75.00,
+  "category": "supplies",
+  "description": "Office paper",
+  "manager_email": "manager@example.com"
+}
+
+###
+
+# ============================================================
+# Scenario 6: Invalid category → Validation error
+# ============================================================
+# "entertainment" is not a valid category.
+# Expected: status "rejected", reason "Invalid category 'entertainment'..."
+
+POST {{baseUrl}}/expenses/submit
+Content-Type: application/json
+
+{
+  "employee_name": "Frank Green",
+  "employee_email": "frank@example.com",
+  "amount": 120.00,
+  "category": "entertainment",
+  "description": "Client dinner",
+  "manager_email": "manager@example.com"
+}
+
+###
+
+# ============================================================
+# STATUS CHECK — Poll an orchestration's current status
+# ============================================================
+# Replace PASTE_INSTANCE_ID_HERE at the top of this file
+# with a real instance ID, then run this request.
+
+GET {{baseUrl}}/orchestrators/expense_orchestrator/{{instance_id}}
+
+###
