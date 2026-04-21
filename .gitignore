@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 .env
 .azurite/
+.python_packages/
