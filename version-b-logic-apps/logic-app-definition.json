@@ -1,0 +1,320 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_one_or_more_messages_arrive_in_a_queue_(auto-complete)": {
+                "recurrence": {
+                    "interval": 30,
+                    "frequency": "Second",
+                    "timeZone": "Eastern Standard Time"
+                },
+                "evaluatedRecurrence": {
+                    "interval": 30,
+                    "frequency": "Second",
+                    "timeZone": "Eastern Standard Time"
+                },
+                "splitOn": "@triggerBody()",
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['servicebus']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/@{encodeURIComponent(encodeURIComponent('expense-requests'))}/messages/batch/head",
+                    "queries": {
+                        "queueType": "Main",
+                        "maxMessageCount": 1
+                    }
+                }
+            }
+        },
+        "actions": {
+            "HTTP": {
+                "runAfter": {},
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://func-expense-ngab0016-a4ffbzcfaabuhnen.canadacentral-01.azurewebsites.net/api/validate",
+                    "method": "POST",
+                    "headers": {
+                        "Content-Type": "application/json"
+                    },
+                    "body": "@base64ToString(triggerBody()?['ContentData'])"
+                },
+                "runtimeConfiguration": {
+                    "contentTransfer": {
+                        "transferMode": "Chunked"
+                    }
+                }
+            },
+            "Condition": {
+                "actions": {
+                    "Condition_1": {
+                        "actions": {
+                            "Send_an_email_(V2)_1": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['outlook']['connectionId']"
+                                        }
+                                    },
+                                    "method": "post",
+                                    "body": {
+                                        "To": "@json(base64ToString(triggerBody()?['ContentData']))['employee_email']",
+                                        "Subject": "Expense Request Auto-Approved",
+                                        "Body": "<p>Your expense request has been approved automatically.<br><br>Amount: @{json(base64ToString(triggerBody()?['ContentData']))['amount']}<br>Category: @{json(base64ToString(triggerBody()?['ContentData']))['category']}<br>Reason: Auto-approved: amount under $100.</p>",
+                                        "Importance": "Normal"
+                                    },
+                                    "path": "/v2/Mail"
+                                }
+                            },
+                            "Send_message_2": {
+                                "runAfter": {
+                                    "Send_an_email_(V2)_1": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['servicebus']['connectionId']"
+                                        }
+                                    },
+                                    "method": "post",
+                                    "body": {
+                                        "ContentData": "@triggerBody()?['ContentData']",
+                                        "ContentType": "application/json",
+                                        "Properties": {
+                                            "outcome": "approved"
+                                        }
+                                    },
+                                    "path": "/@{encodeURIComponent(encodeURIComponent('expense-outcomes'))}/messages",
+                                    "queries": {
+                                        "systemProperties": "None"
+                                    }
+                                }
+                            }
+                        },
+                        "else": {
+                            "actions": {
+                                "Send_approval_email": {
+                                    "type": "ApiConnectionWebhook",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['outlook']['connectionId']"
+                                            }
+                                        },
+                                        "body": {
+                                            "NotificationUrl": "@listCallbackUrl()",
+                                            "Message": {
+                                                "To": "@json(base64ToString(triggerBody()?['ContentData']))['manager_email']",
+                                                "Body": "An expense request requires your approval.\n\nEmployee: @{json(base64ToString(triggerBody()?['ContentData']))['employee_name']}\nAmount: @{json(base64ToString(triggerBody()?['ContentData']))['amount']}\nCategory: @{json(base64ToString(triggerBody()?['ContentData']))['category']}\nDescription: @{json(base64ToString(triggerBody()?['ContentData']))['description']}\n\nPlease select Approve or Reject above.",
+                                                "Importance": "Normal",
+                                                "HideHTMLMessage": false,
+                                                "ShowHTMLConfirmationDialog": false,
+                                                "Subject": "Expense Approval Required",
+                                                "Options": "Approve, Reject"
+                                            }
+                                        },
+                                        "path": "/approvalmail/$subscriptions"
+                                    }
+                                },
+                                "Condition_2": {
+                                    "actions": {
+                                        "Send_an_email_(V2)_2": {
+                                            "type": "ApiConnection",
+                                            "inputs": {
+                                                "host": {
+                                                    "connection": {
+                                                        "name": "@parameters('$connections')['outlook']['connectionId']"
+                                                    }
+                                                },
+                                                "method": "post",
+                                                "body": {
+                                                    "To": "@json(base64ToString(triggerBody()?['ContentData']))['employee_email']",
+                                                    "Subject": "Expense Request Approved",
+                                                    "Body": "<p>Your expense request has been approved by your manager.<br><br>Amount: @{json(base64ToString(triggerBody()?['ContentData']))['amount']}<br>Category: @{json(base64ToString(triggerBody()?['ContentData']))['category']}</p>",
+                                                    "Importance": "Normal"
+                                                },
+                                                "path": "/v2/Mail"
+                                            }
+                                        },
+                                        "Send_message": {
+                                            "runAfter": {
+                                                "Send_an_email_(V2)_2": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "type": "ApiConnection",
+                                            "inputs": {
+                                                "host": {
+                                                    "connection": {
+                                                        "name": "@parameters('$connections')['servicebus']['connectionId']"
+                                                    }
+                                                },
+                                                "method": "post",
+                                                "body": {
+                                                    "ContentData": "@triggerBody()?['ContentData']",
+                                                    "ContentType": "application/json",
+                                                    "Properties": {
+                                                        "outcome": "approved"
+                                                    }
+                                                },
+                                                "path": "/@{encodeURIComponent(encodeURIComponent('expense-outcomes'))}/messages"
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {
+                                        "Send_approval_email": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "else": {
+                                        "actions": {
+                                            "Send_an_email_(V2)_3": {
+                                                "type": "ApiConnection",
+                                                "inputs": {
+                                                    "host": {
+                                                        "connection": {
+                                                            "name": "@parameters('$connections')['outlook']['connectionId']"
+                                                        }
+                                                    },
+                                                    "method": "post",
+                                                    "body": {
+                                                        "To": "@json(base64ToString(triggerBody()?['ContentData']))['employee_email']",
+                                                        "Subject": "Expense Request Rejected",
+                                                        "Body": "<p>Your expense request has been rejected by your manager.<br><br>Amount: @{json(base64ToString(triggerBody()?['ContentData']))['amount']}<br>Category: @{json(base64ToString(triggerBody()?['ContentData']))['category']}</p>",
+                                                        "Importance": "Normal"
+                                                    },
+                                                    "path": "/v2/Mail"
+                                                }
+                                            },
+                                            "Send_message_1": {
+                                                "runAfter": {
+                                                    "Send_an_email_(V2)_3": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "ApiConnection",
+                                                "inputs": {
+                                                    "host": {
+                                                        "connection": {
+                                                            "name": "@parameters('$connections')['servicebus']['connectionId']"
+                                                        }
+                                                    },
+                                                    "method": "post",
+                                                    "body": {
+                                                        "ContentData": "@triggerBody()?['ContentData']",
+                                                        "ContentType": "application/json",
+                                                        "Properties": {
+                                                            "outcome": "rejected"
+                                                        }
+                                                    },
+                                                    "path": "/@{encodeURIComponent(encodeURIComponent('expense-outcomes'))}/messages",
+                                                    "queries": {
+                                                        "systemProperties": "None"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "equals": [
+                                                    "@body('Send_approval_email')?['SelectedOption']",
+                                                    "Approve"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "type": "If"
+                                }
+                            }
+                        },
+                        "expression": {
+                            "and": [
+                                {
+                                    "less": [
+                                        "@float(json(base64ToString(triggerBody()?['ContentData']))['amount'])",
+                                        100
+                                    ]
+                                }
+                            ]
+                        },
+                        "type": "If"
+                    }
+                },
+                "runAfter": {
+                    "HTTP": [
+                        "Succeeded"
+                    ]
+                },
+                "else": {
+                    "actions": {
+                        "Send_an_email_(V2)": {
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['outlook']['connectionId']"
+                                    }
+                                },
+                                "method": "post",
+                                "body": {
+                                    "To": "eliel7specs@gmail.com",
+                                    "Subject": "Expense Request Rejected",
+                                    "Body": "<p>Your expense request has been rejected.<br><br>Reason: @{body('HTTP')['reason']}</p>",
+                                    "Importance": "Normal"
+                                },
+                                "path": "/v2/Mail"
+                            }
+                        }
+                    }
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "equals": [
+                                "@body('HTTP')['valid']",
+                                true
+                            ]
+                        }
+                    ]
+                },
+                "type": "If"
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "servicebus": {
+                    "id": "/subscriptions/bcbd5d91-4814-4eed-9c87-5857afc203e0/providers/Microsoft.Web/locations/canadacentral/managedApis/servicebus",
+                    "connectionId": "/subscriptions/bcbd5d91-4814-4eed-9c87-5857afc203e0/resourceGroups/rg-expense-approval/providers/Microsoft.Web/connections/servicebus",
+                    "connectionName": "servicebus",
+                    "connectionProperties": {}
+                },
+                "outlook": {
+                    "id": "/subscriptions/bcbd5d91-4814-4eed-9c87-5857afc203e0/providers/Microsoft.Web/locations/canadacentral/managedApis/outlook",
+                    "connectionId": "/subscriptions/bcbd5d91-4814-4eed-9c87-5857afc203e0/resourceGroups/rg-expense-approval/providers/Microsoft.Web/connections/outlook",
+                    "connectionName": "outlook",
+                    "connectionProperties": {}
+                }
+            }
+        }
+    }
+}
